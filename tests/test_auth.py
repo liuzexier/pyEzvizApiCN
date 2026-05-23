@@ -247,13 +247,13 @@ def test_login_with_sms_code_sets_mfa_payload(monkeypatch) -> None:
         monkeypatch.setattr(client._session, "post", fake_post)
         monkeypatch.setattr(client, "get_service_urls", lambda: {})
 
-        client.login(sms_code=123456)
+        client.login(sms_code="012345")
 
     assert len(captured) == 2
     for request in captured:
         assert request["data"]["msgType"] == "3"
         assert request["data"]["bizType"] == "TERMINAL_BIND"
-        assert request["data"]["smsCode"] == 123456
+        assert request["data"]["smsCode"] == "012345"
 
 
 def test_login_mfa_required_sends_code_and_raises(monkeypatch) -> None:

@@ -269,17 +269,18 @@ def _login_payload_for_api_url(
     api_url: str,
     account: str | None,
     password: str | None,
-    smscode: int | None,
+    smscode: str | int | None,
 ) -> dict[str, Any]:
     """Return the login form payload for the selected API host."""
 
+    has_smscode = smscode is not None and str(smscode) != ""
     if _is_ys7_api_url(api_url):
         return {
             "account": account,
             "password": password,
             "featureCode": FEATURE_CODE,
-            "msgType": "3" if smscode else "0",
-            "bizType": "TERMINAL_BIND" if smscode else "",
+            "msgType": "3" if has_smscode else "0",
+            "bizType": "TERMINAL_BIND" if has_smscode else "",
             "cuName": "SGFzc2lv",
             "smsCode": smscode,
         }
@@ -287,8 +288,8 @@ def _login_payload_for_api_url(
         "account": account,
         "password": password,
         "featureCode": FEATURE_CODE,
-        "msgType": "3" if smscode else "0",
-        "bizType": "TERMINAL_BIND" if smscode else "",
+        "msgType": "3" if has_smscode else "0",
+        "bizType": "TERMINAL_BIND" if has_smscode else "",
         "cuName": "SGFzc2lv",  # hassio base64 encoded
         "smsCode": smscode,
     }
@@ -537,7 +538,7 @@ class EzvizClient:
         self.mqtt_client: MQTTClient | None = None
         self._debug_request_counters: dict[str, int] = {}
 
-    def _login(self, smscode: int | None = None) -> JsonDict:
+    def _login(self, smscode: str | int | None = None) -> JsonDict:
         """Login to Ezviz API."""
         # Region code to url.
         if len(self._token["api_url"].split(".")) == 1:
@@ -3379,7 +3380,7 @@ class EzvizClient:
         self._ensure_ok(json_output, "Could not get unbind progress")
         return json_output
 
-    def login(self, sms_code: int | None = None) -> JsonDict:
+    def login(self, sms_code: str | int | None = None) -> JsonDict:
         """Get or refresh ezviz login token."""
         session_id = self._token.get("session_id")
         refresh_session_id = self._token.get("rf_session_id")
