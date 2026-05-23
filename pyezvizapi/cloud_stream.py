@@ -9,12 +9,29 @@ import json
 from typing import Any, TypedDict, cast
 from urllib.parse import urlparse
 
-from .api_endpoints import API_ENDPOINT_STREAMING_VTM, API_ENDPOINT_VTDU_TOKEN_V2
+from .api_endpoints import (
+    API_ENDPOINT_STREAMING_VTM,
+    API_ENDPOINT_STREAMING_VTM_YS7,
+    API_ENDPOINT_VTDU_TOKEN_V2,
+)
 from .constants import MAX_RETRIES
 from .exceptions import HTTPError, PyEzvizError
 from .stream import SocketFactory, VtmStreamClient, build_vtm_url
 
 JsonDict = dict[str, Any]
+
+
+def _streaming_vtm_endpoint(client: Any, serial: str, channel_no: int) -> str:
+    """Return the stream relay endpoint for the selected API host."""
+
+    token = getattr(client, "_token", {})
+    api_url = token.get("api_url") if isinstance(token, dict) else None
+    endpoint = (
+        API_ENDPOINT_STREAMING_VTM_YS7
+        if str(api_url).lower() == "api.ys7.com"
+        else API_ENDPOINT_STREAMING_VTM
+    )
+    return endpoint.format(device_serial=serial, channel_no=channel_no)
 
 
 class VtduTokenResponse(TypedDict, total=False):
@@ -50,10 +67,7 @@ def get_vtm_info(client: Any, serial: str, channel: int = 1) -> JsonDict:
         JsonDict,
         client._request_json(
             "GET",
-            API_ENDPOINT_STREAMING_VTM.format(
-                device_serial=serial,
-                channel_no=channel_no,
-            ),
+            _streaming_vtm_endpoint(client, serial, channel_no),
         ),
     )
     server_config = payload.get("streamServerConfig")

@@ -155,3 +155,4 @@ dmypy.json
 # Local reverse-engineering notes and resolver lock output
 /reviews/
 /uv.lock
+ezviz_token.json

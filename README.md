@@ -1,477 +1,282 @@
-# Ezviz PyPi
+# pyEzvizApiCN
 
-![Upload Python Package](https://github.com/RenierM26/pyEzvizApi/workflows/Upload%20Python%20Package/badge.svg)
-[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-renierm-yellow?logo=buymeacoffee)](https://www.buymeacoffee.com/renierm)
+这是一个面向 EZVIZ/萤石设备的 Python API 客户端和命令行工具。项目基于 `pyezvizapi`，当前分支重点增加了对中国区萤石云 iOS 接口形态的适配，适合用于本地调试、脚本自动化，以及 Home Assistant 相关集成探索。
 
-## Overview
+## 功能概览
 
-Pilot your Ezviz cameras (and light bulbs) with this module. It is used by:
+- 登录 EZVIZ/萤石账号并保存 session token。
+- 查询摄像头、灯泡、插座等设备状态。
+- 查询原始设备资源数据，便于抓包对照和调试。
+- 控制摄像头常见开关：隐私模式、休眠、音频、红外灯、状态灯等。
+- 控制云台 PTZ、报警、防区和部分设备配置。
+- 获取统一消息、云录像、SD 卡录像描述。
+- 支持实验性的云端 VTM 流、本地 LAN SDK 流和部分加密视频解密流程。
+- 对 `api.ys7.com` 做了 CN iOS 请求路径和响应结构兼容。
 
-- The official Ezviz integration in Home Assistant
-- The EZVIZ (Beta) custom integration for Home Assistant
+## 安装
 
-You can also use it directly from the command line for quick checks and scripting.
-
-## Features
-
-- Inspect device and connection status in table or JSON form
-- Control cameras: PTZ, privacy/sleep/audio/IR/state LEDs, alarm settings
-- Control light bulbs: toggle, status, brightness and color temperature
-- Dump raw pagelist and device infos JSON for exploration/debugging
-- Reuse a saved session token (no credentials needed after first login)
-
-## Install
-
-From PyPI:
+建议使用 Python 3.12+。
 
 ```bash
-pip install pyezvizapi
-```
-
-After installation, a `pyezvizapi` command is available on your PATH.
-
-### Dependencies (development/local usage)
-
-If you are running from a clone of this repository or using the helper scripts directly, ensure these packages are available:
-
-```bash
-pip install requests paho-mqtt pycryptodome
-```
-
-## Quick Start
-
-```bash
-# See available commands and options
-pyezvizapi --help
-
-# First-time login and save token for reuse
-pyezvizapi -u YOUR_EZVIZ_USERNAME -p YOUR_EZVIZ_PASSWORD --save-token devices status
-
-# Subsequent runs can reuse the saved token (no credentials needed)
-pyezvizapi devices status --json
-```
-
-## CLI Authentication
-
-- Username/password: `-u/--username` and `-p/--password`
-- Token file: `--token-file` (defaults to `ezviz_token.json` in the current directory)
-- Save token: `--save-token` writes the current token after login
-- Saved token precedence: if `--token-file` contains a session token, the CLI reuses
-  it even when username/password are also supplied. This preserves MFA/elevated
-  session state; a fresh credential login may require MFA again.
-- MFA: The CLI prompts for a code if required by your account
-- Region: `-r/--region` overrides the default region (`apiieu.ezvizlife.com`)
-
-Examples:
-
-```bash
-# First-time login and save token locally
-pyezvizapi -u YOUR_EZVIZ_USERNAME -p YOUR_EZVIZ_PASSWORD --save-token devices status
-
-# Reuse saved token (no credentials)
-pyezvizapi devices status --json
-```
-
-## Output Modes
-
-- Default: human-readable tables (for list/status views)
-- JSON: add `--json` for easy parsing and editor-friendly exploration
-
-## CLI Commands
-
-All commands are subcommands of the module runner:
-
-```bash
-pyezvizapi <command> [options]
-```
-
-### devices
-
-- Actions: `device`, `status`, `switch`, `connection`
-- Examples:
-
-```bash
-# Table view
-pyezvizapi devices status
-
-# JSON view
-pyezvizapi devices status --json
-```
-
-Sample table columns include:
-
-```
-name | status | device_category | device_sub_category | sleep | privacy | audio | ir_led | state_led | local_ip | local_rtsp_port | battery_level | alarm_schedules_enabled | alarm_notify | Motion_Trigger
-```
-
-The CLI also computes a `switch_flags` map for each device (all switch states by name, e.g. `privacy`, `sleep`, `sound`, `infrared_light`, `light`, etc.).
-
-### stream
-
-Experimental VTM cloud stream helpers. Packet tracing prints sanitized metadata only. Dumping writes VLC-friendly MPEG-TS by default using FFmpeg `-c copy` remuxing only, with `--format raw` available for unchanged VTM payloads. Encrypted packets fail unless `--allow-encrypted` is set. Some battery cameras keep the VTM channel unencrypted but encrypt the video NAL payloads inside MPEG-PS; use `--decrypt-video` to decrypt those HEVC/H.264 NAL payloads with the camera encrypt key before writing or remuxing.
-
-```bash
-# Inspect stream packet metadata without printing media bytes
-pyezvizapi stream trace --serial ABC123 --channel 1 --max-packets 20 --json-lines
-
-# Dump a VLC-playable MPEG-TS capture to a file
-pyezvizapi stream dump --serial ABC123 --channel 1 --duration 1m --output stream.ts
-
-# Decrypt encrypted battery-camera HEVC video while dumping
-pyezvizapi stream dump --serial ABC123 --channel 1 --duration 30s --decrypt-video --output stream.ts
-
-# Pipe raw MPEG-PS payloads directly into FFmpeg and remux to MPEG-TS
-pyezvizapi stream dump --serial ABC123 --channel 1 --format raw | \
-  ffmpeg -f mpeg -i pipe:0 -c copy -f mpegts stream.ts
-
-# Serve a local MPEG-TS URL for Home Assistant/FFmpeg clients
-pyezvizapi stream proxy --serial ABC123 --channel 1 --listen-port 8558
-
-# Serve a decrypted local MPEG-TS URL for encrypted battery cameras
-pyezvizapi stream proxy --serial ABC123 --channel 1 --decrypt-video --listen-port 8558
-```
-
-The dump command captures one minute by default. Use `--duration 30s`, `--duration 2min`, or `--duration 0` for unlimited capture; `--max-packets` can still be used as an additional stop limit. MPEG-TS output requires FFmpeg and remuxes the camera payload with codec copy only; it does not transcode video or audio. The proxy serves `http://<host>:8558/<serial>.ts` by default. Each HTTP client opens a fresh VTM stream and remuxes it through FFmpeg. Keep the proxy bound to loopback unless you put it behind an authenticated reverse proxy or otherwise restrict access; the stream URL is not authenticated by `pyezvizapi`.
-
-Direct-local SDK streaming is also available for devices that expose the local
-`9010/9020` SDK setup. Authenticated clients can fetch the LAN endpoint, CAS
-local-control tuple, and camera media decrypt key explicitly:
-
-```bash
-pyezvizapi --token-file ezviz_token.json stream local-sdk-keys \
-  --serial ABC123456
-```
-
-That command intentionally prints secrets for setup/debug use. For normal
-streaming, prefer fetching CAS directly with `--fetch-cas` and let
-`--decrypt-video` retrieve the media key from the authenticated client. You can
-also save that JSON to a protected file and pass it back with
-`--credentials-file`, supply values for one run, or use
-`EZVIZ_LOCAL_OPERATION_CODE` and `EZVIZ_LOCAL_CAS_KEY`:
-
-The Python implementation matches the normal app live-view wire shape: local
-SDK frames are `32-byte header + AES-CBC/PKCS#5 body + 32-byte ASCII MD5
-ciphertext trailer`, then the `9020` stream port emits `$` interleaved RTP carrying
-MPEG-PS payloads.
-
-```bash
-pyezvizapi stream local-sdk-dump \
-  --credentials-file local-sdk-credentials.json \
-  --decrypt-video --decrypt-codec encrypted-header \
-  --format mpegts --output local.ts \
-  --metadata-output local.metadata.json
-```
-
-```bash
-pyezvizapi stream local-sdk-dump \
-  --host 192.0.2.10 --serial ABC123456 \
-  --operation-code "$EZVIZ_LOCAL_OPERATION_CODE" \
-  --cas-key "$EZVIZ_LOCAL_CAS_KEY" \
-  --media-key-hex "$EZVIZ_LOCAL_MEDIA_KEY_HEX" \
-  --decrypt-video --decrypt-codec hevc-encrypted-header \
-  --inner-address 192.0.2.20 --inner-port 9020 \
-  --format mpegts --output local.ts \
-  --metadata-output local.metadata.json
-```
-
-If your token contains CAS service metadata, `--fetch-cas` can fetch the
-operation-code/key tuple through authenticated EZVIZ CAS instead of requiring
-those two values on the command line. When `--decrypt-video` is used without
-`--media-key` or `--media-key-hex`, the CLI fetches the camera media key with
-the authenticated client:
-
-```bash
-pyezvizapi --token-file ezviz_token.json stream local-sdk-dump \
-  --host 192.0.2.10 --serial ABC123456 --fetch-cas \
-  --inner-address 192.0.2.20 --inner-port 9020 \
-  --format mpegts --output local.ts
-```
-
-Use `--cas-serial` when the cloud CAS lookup needs a different serial form
-than the local SDK IV/device serial used for the stream setup. The default
-`--receiver-shape app` uses the self-closing attribute XML seen in normal EZVIZ
-live-view traces; use `--receiver-shape structured` when you need the older
-nested `NatAddress`/`InnerAddress` receiver XML shape.
-The local SDK client binds the command socket source port to the advertised
-receiver port before connecting to the camera command port, matching the
-normal app's `bind(0.0.0.0:<ReceiverInfo Port>) -> connect(<camera>:9010)`
-sequence.
-For encrypted local media, `--media-key` accepts printable media keys and
-`--media-key-hex`/`EZVIZ_LOCAL_MEDIA_KEY_HEX` accepts binary native media keys
-encoded as hex. This media key is separate from the CAS key used for the
-local-SDK control-channel envelope.
-The `--credentials-file` form accepts the JSON shape printed by
-`local-sdk-keys`: `serial`, `endpoint.host`, `endpoint.command_port`,
-`endpoint.stream_port`, `cas.operation_code`, `cas.key`, `cas.encrypt_type`, and
-optional `media_key` or `media_key_hex`. Explicit CLI arguments override matching
-credential-file fields.
-The optional metadata JSON contains only non-secret response commands, statuses,
-body classifications, XML tag names, and first-media shape; it deliberately does
-not include request bodies, keys, operation codes, UUIDs, timestamps, or payload
-bytes.
-
-Library callers that just want bytes can use
-`copy_local_sdk_stream_from_client(client, serial, output, ...)`. It fetches the
-LAN endpoint and CAS tuple, opens the local `9010/9020` stream, optionally fetches
-the media decrypt key when `decrypt_video=True`, and writes either `mpegps` or
-`mpegts` output before closing the sockets. Lower-level callers can still use
-`open_local_sdk_stream_from_client()` with
-`copy_local_stream_to_mpegps()`/`copy_local_stream_to_mpegts()` for clear local
-media, or `copy_local_stream_to_decrypted_mpegps()` /
-`copy_local_stream_to_decrypted_mpegts()` for encrypted local media. Decrypting
-captures must use a bounded `duration_seconds` or `max_packets` value; the decrypt
-transform buffers MPEG-PS data so it can handle NALs split across local RTP
-packets.
-
-For live regression checks from a source checkout while working on the
-direct-local path, use the operator harness under
-\`tools/apk-re/bin/local-sdk-live-check\`. It forwards your local-sdk-dump
-arguments, captures a short MPEG-TS sample, runs FFprobe, extracts one JPEG frame
-with FFmpeg, and prints sanitized JSON with the artifact paths and detected
-streams:
-
-    uv run tools/apk-re/bin/local-sdk-live-check --duration 5s --output-dir tmp/local-sdk-check -- \
-      --credentials-file local-sdk-credentials.json \
-      --decrypt-video --decrypt-codec encrypted-header
-
-The harness owns output, metadata, duration, format, and FFmpeg path arguments so
-it can keep the validation artifacts predictable. It does not print forwarded
-arguments, request bodies, keys, operation codes, UUIDs, timestamps, or payload
-bytes.
-
-This is separate from the proprietary HCNetSDK command protocol on port `8000`.
-That app path has been traced, but a standalone pure-Python `8000` login/player
-implementation still needs more packet-level reverse engineering or native SDK
-bindings.
-
-### cloud_videos
-
-Fetch cloud clip descriptors used by the EZVIZ app download path. The returned metadata can include `seqId`, `storageVersion`, `fileSize`, `crypt`, `keyChecksum`, and the native SDK `streamUrl` host/port.
-
-```bash
-# List recent cloud clips
-pyezvizapi cloud_videos --serial ABC123 --channel 1 --limit 10
-
-# Hydrate details and emit JSON for further investigation
-pyezvizapi --json cloud_videos --serial ABC123 --channel 1 --limit 5 --details
-
-# Download a cloud clip. Direct HTTP(S) URLs are saved as-is; native streamUrl
-# clips are fetched through the pure-Python cloud replay protocol and decrypted.
-pyezvizapi cloud_video_download --serial ABC123 --channel 1 --seq-id 12345 \
-  --output clip.ps --encrypted-output clip.tmp
-
-# Decrypt a previously captured native .tmp file locally in Python
-pyezvizapi cloud_video_decrypt --serial ABC123 --input clip.tmp --output clip.ps
-```
-
-Some cloud clips only expose the EZVIZ native SDK `streamUrl` host/port in `videoDetails`. For regular cloud-storage clips, `cloud_video_download` now fetches `/v3/cameras/ticketInfo`, downloads the encrypted cloud replay `.tmp` stream over TLS, and applies the local Python PS/NAL decrypt transform. `--encrypted-output` keeps the encrypted `.tmp` for comparison.
-
-`cloud_video_decrypt` is the pure-Python transform step for captured cloud `.tmp` files. Prefer `--serial` so `pyezvizapi` fetches the camera encrypt key without putting it in shell history; `--key` is available for offline/manual experiments. By default, `--decrypt-codec auto` detects HEVC, H.264 with an encrypted NAL header, or H.264 with a clear one-byte NAL header. You can still force `--decrypt-codec hevc`, `--decrypt-codec h264`, `--decrypt-codec h264-clear-header`, or `--decrypt-codec h264-encrypted-header` for manual experiments. `h264` remains the backwards-compatible alias for clear-header H.264.
-
-### sdcard_videos
-
-Fetch SD-card playback record descriptors using the same record-list endpoints exposed by the EZVIZ app.
-
-```bash
-# List recent SD-card playback records
-pyezvizapi sdcard_videos --serial ABC123 --channel 1 \
-  --start-time "2026-05-10T21:50:00" --stop-time "2026-05-10T21:55:00"
-
-# Try the app's common/intelligent record endpoints when the default v2 path is empty
-pyezvizapi --json sdcard_videos --serial ABC123 --source common \
-  --start-time "2026-05-10T21:50:00" --stop-time "2026-05-10T21:55:00"
-```
-
-SD-card records are descriptors for native playback/download. The public API does not currently expose a direct HTTP media URL for every record; use `stream dump` for live VTM capture or `cloud_video_download` when cloud `videoDetails` includes an HTTP(S) URL.
-
-### camera
-
-Requires `--serial`.
-
-- Actions: `status`, `move`, `move_coords`, `unlock-door`, `unlock-gate`, `switch`, `alarm`, `select`
-- Examples:
-
-```bash
-# Camera status
-pyezvizapi camera --serial ABC123 status
-
-# PTZ move
-pyezvizapi camera --serial ABC123 move --direction up --speed 5
-
-# Move by coordinates
-pyezvizapi camera --serial ABC123 move_coords --x 0.4 --y 0.6
-
-# Switch setters
-pyezvizapi camera --serial ABC123 switch --switch privacy --enable 1
-
-# Alarm settings (push notify, sound level, do-not-disturb)
-pyezvizapi camera --serial ABC123 alarm --notify 1 --sound 2 --do_not_disturb 0
-
-# Battery camera work mode
-pyezvizapi camera --serial ABC123 select --battery_work_mode POWER_SAVE
-```
-
-### devices_light
-
-- Actions: `status`
-- Example:
-
-```bash
-pyezvizapi devices_light status
-```
-
-### home_defence_mode
-
-Set global defence mode for the account/home.
-
-```bash
-pyezvizapi home_defence_mode --mode HOME_MODE
-```
-
-### mqtt
-
-Connect to Ezviz MQTT push notifications using the current session token. Use `--debug` to see connection details.
-
-```bash
-pyezvizapi mqtt
-```
-
-#### MQTT push test script (standalone)
-
-For quick experimentation, a small helper script is included which can use a saved token file or prompt for credentials with MFA and save the session token:
-
-```bash
-# With a previously saved token file
-python examples/mqtt_listener.py --token-file ezviz_token.json
-
-# Interactive login, then save token for next time
-python examples/mqtt_listener.py --save-token
-
-# Explicit credentials (not recommended for shared terminals)
-python examples/mqtt_listener.py -u USER -p PASS --save-token
-```
-
-### pagelist
-
-Dump the complete raw pagelist JSON. Great for exploring unknown fields in an editor (e.g. Notepad++).
-
-```bash
-pyezvizapi pagelist > pagelist.json
-```
-
-### device_infos
-
-Dump the processed device infos mapping (what the integration consumes). Optionally filter to one serial:
-
-```bash
-# All devices
-pyezvizapi device_infos > device_infos.json
-
-# Single device
-pyezvizapi device_infos --serial ABC123 > ABC123.json
-```
-
-## Remote door and gate unlock (CS-HPD7)
-
-```bash
-pyezvizapi camera --serial BAXXXXXXX-BAYYYYYYY unlock-door
-pyezvizapi camera --serial BAXXXXXXX-BAYYYYYYY unlock-gate
-```
-
-## RTSP authentication test (Basic → Digest)
-
-Validate RTSP credentials by issuing a DESCRIBE request. Falls back from Basic to Digest auth automatically.
-
-```bash
-python examples/rtsp_auth_test.py <IP> <USER> <PASS> --uri /Streaming/Channels/101
-```
-
-On success, the script prints a confirmation. On failure it raises one of:
-
-- `InvalidHost`: Hostname/IP or port issue
-- `AuthTestResultFailed`: Invalid credentials
-
-## Development
-
-Install the project with development dependencies:
-
-```bash
+cd /Users/clover/workspace/pyEzvizApi
+/opt/homebrew/bin/python3.12 -m venv .venv
+source .venv/bin/activate
 python -m pip install -U pip wheel
-python -m pip install -e .[dev]
+python -m pip install -e '.[dev]'
 ```
 
-Run the same local validation used by CI:
+安装完成后可以使用：
 
 ```bash
-ruff check .
-codespell pyezvizapi tests README.md pyproject.toml .github
-pip-audit --progress-spinner off
-mypy --install-types --non-interactive .
-pyright pyezvizapi
-pytest --cov=pyezvizapi --cov-report=term-missing --cov-report=xml --cov-fail-under=85
-python -m build
-twine check dist/*
-python -m pip check
+pyezvizapi --help
 ```
 
-Run style fixes where possible:
+## 中国区配置
+
+中国区萤石云使用：
 
 ```bash
-ruff check --fix .
+export EZVIZ_REGION='api.ys7.com'
+export EZVIZ_USERNAME='你的用户名'
+export EZVIZ_PASSWORD='你的密码'
 ```
 
-Before committing, remove generated artifacts so they do not leak into PRs:
+首次登录并保存 token：
 
 ```bash
-rm -rf dist build *.egg-info .coverage coverage.xml .pytest_cache .mypy_cache .ruff_cache
-find . -type d -name __pycache__ -prune -exec rm -rf {} +
+pyezvizapi -r "$EZVIZ_REGION" \
+  -u "$EZVIZ_USERNAME" \
+  -p "$EZVIZ_PASSWORD" \
+  --save-token devices status
 ```
 
-Tests should be offline by default. Do not add tests that require EZVIZ credentials,
-real cameras, cloud calls, or live network access. Prefer small fixtures and fakes for
-request builders, status parsing, MQTT payload handling, and Home Assistant integration
-contracts.
-
-## Side Notes
-
-There is no official API documentation. Much of this is based on reverse-engineering the Ezviz mobile app (Android/iOS). Some regions operate on separate endpoints; US example: `apiius.ezvizlife.com`.
-
-Example:
+后续如果 `ezviz_token.json` 中已有有效 session，可以直接复用 token：
 
 ```bash
-pyezvizapi -u username@domain.com -p PASS@123 -r apius.ezvizlife.com devices status
+pyezvizapi -r "$EZVIZ_REGION" --json devices status
 ```
 
-For advanced troubleshooting or new feature research, MITM proxy tools like mitmproxy/Charles/Fiddler can be used to inspect traffic from the app (see community guides for SSL unpinning and WSA usage).
+注意：`ezviz_token.json` 包含登录 session，不建议提交到 Git 仓库。
 
-## Contributing
+## 本次 CN/iOS 适配
 
-Contributions are welcome — the API surface is large and there are many improvements possible.
+本分支已根据 iOS 端抓包对 `api.ys7.com` 做了独立适配，不影响默认国际区接口。
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) for development setup, local validation, offline-test expectations, and cleanup guidance before opening a PR.
+### 登录适配
 
-For questions, bug reports, and feature requests, see [`SUPPORT.md`](SUPPORT.md) for what to include and what not to post publicly.
+`api.ys7.com` 登录接口改为：
 
-For changes that affect Home Assistant integrations, see [`docs/home-assistant-contract.md`](docs/home-assistant-contract.md) before renaming methods, changing status keys, or altering auth/MQTT behavior.
+```text
+POST /v3/users/login/v3
+```
 
-For vulnerability reports or security-sensitive behavior, see [`SECURITY.md`](SECURITY.md). Please do not post credentials, MFA codes, tokens, or private camera URLs in public issues.
+登录请求使用 iOS VideoGo 风格 header：
 
-## Versioning
+```text
+Accept: */*
+Connection: keep-alive
+Content-Type: application/x-www-form-urlencoded
+Host: api.ys7.com
+User-Agent: VideoGo/7.7.3 (iPhone; iOS 26.5; Scale/3.00)
+appId: ys7
+clientNo:
+clientType: 1
+clientVersion:
+featureCode: 动态生成的设备标识
+sessionId:
+ssid:
+```
 
-We follow SemVer when publishing the library. See `CHANGELOG.md` and repository tags for released versions.
+登录 form 只保留：
 
-Release tags should match the package version in `pyproject.toml` using the form `v<version>` (for example, `v1.0.4.7`). The PyPI publish workflow validates this before uploading distributions.
+```text
+account
+password
+featureCode
+msgType
+bizType
+cuName
+```
 
-Recommended release flow:
+`featureCode` 使用项目原有逻辑动态生成；`cuName` 使用原项目默认值 `SGFzc2lv`。同时兼容 CN iOS 登录成功响应中的 `sessionInfo`：
 
-1. Bump `project.version` in `pyproject.toml` and update `CHANGELOG.md` under `Unreleased` during normal PR work.
-2. Run **Prepare Release** with the bare version, then review and merge the generated changelog PR.
-3. Run **Upload Python Package** manually with the same bare version. That workflow validates the version, builds and smoke-tests the wheel/CLI, publishes to PyPI, then creates the matching GitHub release/tag.
+```json
+{
+  "sessionInfo": {
+    "sessionId": "...",
+    "rfSessionId": "...",
+    "userName": "..."
+  },
+  "meta": {
+    "code": 200
+  }
+}
+```
 
-## License
+### 路径替换
 
-Apache 2.0 — see `LICENSE.md`.
+`api.ys7.com` 下已替换为 CN iOS 路径：
 
----
+| 功能 | 原项目路径 | CN iOS 路径 |
+| --- | --- | --- |
+| 登录 | `/v3/users/login/v5` | `/v3/users/login/v3` |
+| 设备资源列表 | `/v3/userdevices/v1/resources/pagelist` | `/v3/devices/resources` |
+| 设备状态 | `/v3/userdevices/v1/devices/status` | `/v3/devices/statusInfo` |
+| 流媒体 ticket | `/v3/cameras/ticketInfo` | `/v3/streaming/ticket/{serial}/{channel}` |
+| 流媒体 relay/VTM | `/v3/streaming/vtm/{serial}/{channel}` | `/v3/streaming/query/relay/{serial}/{channel}` |
 
-Draft versions: 0.0.x
+### 响应结构兼容
+
+CN iOS 的 `/v3/devices/resources` 返回字段和原项目 pagelist 不一致，代码已做映射：
+
+| CN iOS 字段 | 项目内部字段 |
+| --- | --- |
+| `statusInfos` | `STATUS` |
+| `switchStatusInfos` | `SWITCH` |
+| `connectionInfos` | `CONNECTION` |
+| `wifiInfos` | `WIFI` |
+| `cloudInfos` | `CLOUD` |
+| `p2pInfos` | `P2P` |
+| `secretKeyInfos` | `KMS` |
+| `featureInfos` | `FEATURE_INFO` |
+| `resources` | `resourceInfos` |
+| `cameraInfos[].vtmInfo` | `VTM` |
+| `cameraInfos` | `CHANNEL` |
+| `cameraInfos[].videoQualityInfos` | `VIDEO_QUALITY` |
+
+这样 `devices status`、`device_infos` 等现有命令可以继续使用。
+
+## 常用命令
+
+查看所有设备状态：
+
+```bash
+pyezvizapi -r "$EZVIZ_REGION" devices status
+```
+
+JSON 输出：
+
+```bash
+pyezvizapi -r "$EZVIZ_REGION" --json devices status
+```
+
+查看原始设备信息：
+
+```bash
+pyezvizapi -r "$EZVIZ_REGION" --json device_infos
+```
+
+查看某个设备：
+
+```bash
+pyezvizapi -r "$EZVIZ_REGION" --json device_infos --serial 设备序列号
+```
+
+摄像头状态：
+
+```bash
+pyezvizapi -r "$EZVIZ_REGION" camera --serial 设备序列号 status
+```
+
+云台移动：
+
+```bash
+pyezvizapi -r "$EZVIZ_REGION" camera --serial 设备序列号 move --direction up --speed 5
+```
+
+切换隐私模式：
+
+```bash
+pyezvizapi -r "$EZVIZ_REGION" camera --serial 设备序列号 switch --switch privacy --enable 1
+```
+
+统一消息/报警消息：
+
+```bash
+pyezvizapi -r "$EZVIZ_REGION" --json unifiedmsg
+```
+
+灯泡：
+
+```bash
+pyezvizapi -r "$EZVIZ_REGION" devices_light status
+pyezvizapi -r "$EZVIZ_REGION" light --serial 设备序列号 status
+pyezvizapi -r "$EZVIZ_REGION" light --serial 设备序列号 toggle
+```
+
+## 流媒体相关
+
+查看 stream 子命令：
+
+```bash
+pyezvizapi stream --help
+```
+
+抓取 VTM 包元数据：
+
+```bash
+pyezvizapi -r "$EZVIZ_REGION" stream trace \
+  --serial 设备序列号 \
+  --channel 1 \
+  --max-packets 20 \
+  --json-lines
+```
+
+导出 MPEG-TS：
+
+```bash
+pyezvizapi -r "$EZVIZ_REGION" stream dump \
+  --serial 设备序列号 \
+  --channel 1 \
+  --duration 30s \
+  --output stream.ts
+```
+
+启动本地代理：
+
+```bash
+pyezvizapi -r "$EZVIZ_REGION" stream proxy \
+  --serial 设备序列号 \
+  --channel 1 \
+  --listen-port 8558
+```
+
+本地 SDK 流需要设备暴露 `9010/9020` 端口，并需要 CAS/local stream 相关凭据：
+
+```bash
+pyezvizapi -r "$EZVIZ_REGION" stream local-sdk-keys \
+  --serial 设备序列号
+```
+
+## 开发与测试
+
+运行单元测试：
+
+```bash
+python -m pytest -q
+```
+
+运行本次 CN 适配相关测试：
+
+```bash
+python -m pytest -q \
+  tests/test_auth.py \
+  tests/test_pagelist.py \
+  tests/test_http_helpers.py::test_ys7_status_and_ticket_use_ios_paths
+```
+
+运行 lint：
+
+```bash
+ruff check pyezvizapi tests
+```
+
+## 安全提示
+
+- 不要把 `ezviz_token.json`、账号密码、HAR 原始抓包提交到公共仓库。
+- HAR 中可能包含 session、设备序列号、局域网 IP、云端 ticket、密钥相关字段。
+- 建议首次登录后使用 `--save-token`，后续尽量复用 token，减少明文密码出现在 shell 历史中的机会。
+
+## 许可证
+
+沿用上游项目许可证，详见 [LICENSE](LICENSE) 和 [LICENSE.md](LICENSE.md)。

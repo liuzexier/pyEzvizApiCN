@@ -31,6 +31,7 @@ from .api_endpoints import (
     API_ENDPOINT_CAM_AUTH_CODE,
     API_ENDPOINT_CAM_ENCRYPTKEY,
     API_ENDPOINT_CAMERA_TICKET_INFO,
+    API_ENDPOINT_CAMERA_TICKET_INFO_YS7,
     API_ENDPOINT_CANCEL_ALARM,
     API_ENDPOINT_CHANGE_DEFENCE_STATUS,
     API_ENDPOINT_CLOUD_VIDEO_DETAILS,
@@ -68,11 +69,13 @@ from .api_endpoints import (
     API_ENDPOINT_IOT_FEATURE_PRODUCT_VOICE_CONFIG,
     API_ENDPOINT_IOT_VIRTUAL_BIND,
     API_ENDPOINT_LOGIN,
+    API_ENDPOINT_LOGIN_YS7,
     API_ENDPOINT_LOGOUT,
     API_ENDPOINT_MANAGED_DEVICE_BASE,
     API_ENDPOINT_OFFLINE_NOTIFY,
     API_ENDPOINT_OSD,
     API_ENDPOINT_PAGELIST,
+    API_ENDPOINT_PAGELIST_YS7,
     API_ENDPOINT_PTZCONTROL,
     API_ENDPOINT_REFRESH_SESSION_ID,
     API_ENDPOINT_REMOTE_LOCK,
@@ -110,6 +113,7 @@ from .api_endpoints import (
     API_ENDPOINT_USERDEVICES_P2P_INFO,
     API_ENDPOINT_USERDEVICES_SEARCH,
     API_ENDPOINT_USERDEVICES_STATUS,
+    API_ENDPOINT_USERDEVICES_STATUS_YS7,
     API_ENDPOINT_USERDEVICES_TOKEN,
     API_ENDPOINT_USERDEVICES_V2,
     API_ENDPOINT_USERS_LBS_SUB_DOMAIN,
@@ -226,6 +230,264 @@ def _ezviz_password_digest(password: str) -> str:
     return md5_factory(password.encode("utf-8"), usedforsecurity=False).hexdigest()
 
 
+def _login_endpoint_for_api_url(api_url: str) -> str:
+    """Return the login endpoint used by a specific EZVIZ/YS7 API host."""
+
+    if api_url.lower() == "api.ys7.com":
+        return API_ENDPOINT_LOGIN_YS7
+    return API_ENDPOINT_LOGIN
+
+
+def _is_ys7_api_url(api_url: str) -> bool:
+    """Return True for the mainland YS7 API host."""
+
+    return api_url.lower() == "api.ys7.com"
+
+
+def _login_headers_for_api_url(api_url: str) -> dict[str, str] | None:
+    """Return host-specific login headers when a region needs mobile shape."""
+
+    if not _is_ys7_api_url(api_url):
+        return None
+    return {
+        "Accept": "*/*",
+        "Connection": "keep-alive",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Host": "api.ys7.com",
+        "User-Agent": "VideoGo/7.7.3 (iPhone; iOS 26.5; Scale/3.00)",
+        "appId": "ys7",
+        "clientNo": "",
+        "clientType": "1",
+        "clientVersion": "",
+        "featureCode": FEATURE_CODE,
+        "sessionId": "",
+        "ssid": "",
+    }
+
+
+def _login_payload_for_api_url(
+    api_url: str,
+    account: str | None,
+    password: str | None,
+    smscode: int | None,
+) -> dict[str, Any]:
+    """Return the login form payload for the selected API host."""
+
+    if _is_ys7_api_url(api_url):
+        return {
+            "account": account,
+            "password": password,
+            "featureCode": FEATURE_CODE,
+            "msgType": "0",
+            "bizType": "",
+            "cuName": "SGFzc2lv",
+        }
+    return {
+        "account": account,
+        "password": password,
+        "featureCode": FEATURE_CODE,
+        "msgType": "3" if smscode else "0",
+        "bizType": "TERMINAL_BIND" if smscode else "",
+        "cuName": "SGFzc2lv",  # hassio base64 encoded
+        "smsCode": smscode,
+    }
+
+
+YS7_RESOURCE_FILTER = (
+    "DEFENCE_V2,WEIXIN,CLOUD,OFFLINE,CONNECTION,SWITCH,STATUS,STATUS_EXT,"
+    "WIFI,NODISTURB_2,SHARE,FACE,P2P_V2,SECRET_KEY,TTS,DORMANCY,UN_REMIND,"
+    "SHADOW_STATUS,SPECIAL_DEVICE,SWITCH_TYPE,DUAL_VIDEO,TRUSTEE_STATUS,"
+    "PRODUCTS_INFO,FEATURE_INFO,STREAM_STATUS,MULTI_UPGRADE_EXT,SIM_CARD,"
+    "IPC_NVR,VAS_SERVICE"
+)
+
+
+def _pagelist_endpoint_for_api_url(api_url: str) -> str:
+    """Return the resource list endpoint for the selected API host."""
+
+    if _is_ys7_api_url(api_url):
+        return API_ENDPOINT_PAGELIST_YS7
+    return API_ENDPOINT_PAGELIST
+
+
+def _device_status_endpoint_for_api_url(api_url: str) -> str:
+    """Return the device status endpoint for the selected API host."""
+
+    if _is_ys7_api_url(api_url):
+        return API_ENDPOINT_USERDEVICES_STATUS_YS7
+    return API_ENDPOINT_USERDEVICES_STATUS
+
+
+def _camera_ticket_endpoint_for_api_url(api_url: str, serial: str, channel: int) -> str:
+    """Return the camera ticket endpoint for the selected API host."""
+
+    if _is_ys7_api_url(api_url):
+        return API_ENDPOINT_CAMERA_TICKET_INFO_YS7.format(
+            device_serial=serial,
+            channel_no=channel,
+        )
+    return API_ENDPOINT_CAMERA_TICKET_INFO
+
+
+def _copy_ys7_resource_sections(payload: JsonDict, normalized: JsonDict) -> None:
+    """Copy CN iOS resource sections into legacy pagelist section names."""
+
+    key_map = {
+        "alarmNodisturbInfos": "NODISTURB",
+        "cloudInfos": "CLOUD",
+        "connectionInfos": "CONNECTION",
+        "defenceScheduleInfos": "TIME_PLAN",
+        "featureInfos": "FEATURE_INFO",
+        "multiUpgradeExtInfos": "MULTI_UPGRADE_EXT",
+        "p2pInfos": "P2P",
+        "productInfos": "PRODUCTS_INFO",
+        "secretKeyInfos": "KMS",
+        "simCard": "SIM_CARD",
+        "statusExtInfos": "STATUS_EXT",
+        "statusInfos": "STATUS",
+        "switchStatusInfos": "SWITCH",
+        "wifiInfos": "WIFI",
+    }
+    for source_key, target_key in key_map.items():
+        if source_key in payload and target_key not in normalized:
+            normalized[target_key] = payload[source_key]
+
+
+def _ys7_camera_resource_maps(
+    camera_infos: Any,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """Return VTM, CHANNEL and VIDEO_QUALITY maps from CN iOS cameraInfos."""
+
+    vtms: dict[str, Any] = {}
+    channels: dict[str, Any] = {}
+    video_quality: dict[str, Any] = {}
+    if not isinstance(camera_infos, list):
+        return vtms, channels, video_quality
+
+    for camera in camera_infos:
+        if not isinstance(camera, Mapping):
+            continue
+        resource_id = camera.get("cameraId") or camera.get("resourceId")
+        if not isinstance(resource_id, str):
+            continue
+        vtm_info = camera.get("vtmInfo")
+        if isinstance(vtm_info, Mapping):
+            vtms[resource_id] = dict(vtm_info)
+        channels[resource_id] = camera
+        if isinstance(camera.get("videoQualityInfos"), list):
+            video_quality[resource_id] = camera["videoQualityInfos"]
+    return vtms, channels, video_quality
+
+
+def _set_if_missing(target: JsonDict, key: str, value: Any) -> None:
+    """Set a normalized section only when it has data and is absent."""
+
+    if value and key not in target:
+        target[key] = value
+
+
+def _normalize_ys7_resources_payload(payload: JsonDict) -> JsonDict:
+    """Map CN iOS /v3/devices/resources keys to the legacy pagelist shape."""
+
+    if "resourceInfos" in payload or not (
+        "resources" in payload
+        or "statusInfos" in payload
+        or "switchStatusInfos" in payload
+    ):
+        return payload
+
+    normalized = dict(payload)
+    _copy_ys7_resource_sections(payload, normalized)
+
+    resources = payload.get("resources")
+    if isinstance(resources, list) and "resourceInfos" not in normalized:
+        normalized["resourceInfos"] = resources
+
+    vtms, channels, video_quality = _ys7_camera_resource_maps(payload.get("cameraInfos"))
+    _set_if_missing(normalized, "VTM", vtms)
+    _set_if_missing(normalized, "CHANNEL", channels)
+    _set_if_missing(normalized, "VIDEO_QUALITY", video_quality)
+
+    return normalized
+
+
+def _token_from_login_response(json_result: JsonDict, api_url: str) -> ClientToken:
+    """Build the internal token shape from either global or CN iOS login response."""
+
+    session_info = json_result.get("loginSession") or json_result.get("sessionInfo") or {}
+    user_info = json_result.get("loginUser") or json_result.get("sessionInfo") or {}
+    login_area = json_result.get("loginArea") or {}
+    session_id = str(session_info["sessionId"])
+    return {
+        "session_id": session_id,
+        "rf_session_id": str(session_info["rfSessionId"]),
+        "username": str(user_info.get("username") or user_info.get("userName")),
+        "api_url": str(login_area.get("apiDomain") or api_url),
+        "feature_code": FEATURE_CODE,
+    }
+
+
+def _raise_login_error(json_result: JsonDict) -> None:
+    """Raise the historical login error for non-success meta codes."""
+
+    code = json_result["meta"]["code"]
+    messages = {
+        1012: "The MFA code is invalid, please try again.",
+        1013: "Incorrect Username.",
+        1014: "Incorrect Password.",
+        1015: "The user is locked.",
+    }
+    if code in messages:
+        raise PyEzvizError(messages[code])
+    raise PyEzvizError(f"Login error: {json_result['meta']}")
+
+
+def _post_login_response(
+    session: requests.Session,
+    api_url: str,
+    payload: JsonDict,
+    timeout: int,
+) -> requests.Response:
+    """Post the login request, optionally using the CN iOS login header shape."""
+
+    login_headers = _login_headers_for_api_url(api_url)
+    original_headers = session.headers.copy()
+    try:
+        if login_headers is not None:
+            session.headers.clear()
+            session.headers.update(login_headers)
+        req = session.post(
+            url=f"https://{api_url}{_login_endpoint_for_api_url(api_url)}",
+            allow_redirects=False,
+            data=payload,
+            timeout=timeout,
+        )
+        req.raise_for_status()
+    except requests.ConnectionError as err:
+        raise InvalidURL("A Invalid URL or Proxy error occurred") from err
+    except requests.HTTPError as err:
+        raise HTTPError from err
+    finally:
+        if login_headers is not None:
+            session.headers.clear()
+            session.headers.update(original_headers)
+    return req
+
+
+def _login_json_from_response(req: requests.Response) -> JsonDict:
+    """Decode login JSON with the historical error shape."""
+
+    try:
+        return cast(JsonDict, req.json())
+    except ValueError as err:
+        raise PyEzvizError(
+            "Impossible to decode response: "
+            + str(err)
+            + "\nResponse was: "
+            + str(req.text)
+        ) from err
+
+
 class EzvizClient:
     """Initialize api client object."""
 
@@ -280,54 +542,14 @@ class EzvizClient:
         if len(self._token["api_url"].split(".")) == 1:
             self._token["api_url"] = "apii" + self._token["api_url"] + ".ezvizlife.com"
 
-        payload = {
-            "account": self.account,
-            "password": self.password,
-            "featureCode": FEATURE_CODE,
-            "msgType": "3" if smscode else "0",
-            "bizType": "TERMINAL_BIND" if smscode else "",
-            "cuName": "SGFzc2lv",  # hassio base64 encoded
-            "smsCode": smscode,
-        }
-
-        try:
-            req = self._session.post(
-                url=f"https://{self._token['api_url']}{API_ENDPOINT_LOGIN}",
-                allow_redirects=False,
-                data=payload,
-                timeout=self._timeout,
-            )
-
-            req.raise_for_status()
-
-        except requests.ConnectionError as err:
-            raise InvalidURL("A Invalid URL or Proxy error occurred") from err
-
-        except requests.HTTPError as err:
-            raise HTTPError from err
-
-        try:
-            json_result = req.json()
-
-        except ValueError as err:
-            raise PyEzvizError(
-                "Impossible to decode response: "
-                + str(err)
-                + "\nResponse was: "
-                + str(req.text)
-            ) from err
+        api_url = self._token["api_url"]
+        payload = _login_payload_for_api_url(api_url, self.account, self.password, smscode)
+        req = _post_login_response(self._session, api_url, payload, self._timeout)
+        json_result = _login_json_from_response(req)
 
         if json_result["meta"]["code"] == 200:
-            self._session.headers["sessionId"] = json_result["loginSession"][
-                "sessionId"
-            ]
-            self._token = {
-                "session_id": str(json_result["loginSession"]["sessionId"]),
-                "rf_session_id": str(json_result["loginSession"]["rfSessionId"]),
-                "username": str(json_result["loginUser"]["username"]),
-                "api_url": str(json_result["loginArea"]["apiDomain"]),
-                "feature_code": FEATURE_CODE,
-            }
+            self._token = _token_from_login_response(json_result, api_url)
+            self._session.headers["sessionId"] = str(self._token["session_id"])
 
             self._token["service_urls"] = self.get_service_urls()
 
@@ -361,7 +583,7 @@ class EzvizClient:
                 "MFA enabled on account. Please retry with code."
             )
 
-        raise PyEzvizError(f"Login error: {json_result['meta']}")
+        _raise_login_error(json_result)
 
     # ---- Internal HTTP helpers -------------------------------------------------
 
@@ -726,20 +948,24 @@ class EzvizClient:
         if page_filter is None:
             raise PyEzvizError("Trying to call get_pagelist without filter")
 
+        api_url = self._token["api_url"]
+        request_filter = YS7_RESOURCE_FILTER if _is_ys7_api_url(api_url) else page_filter
         params: dict[str, int | str] = {
             "groupId": group_id,
             "limit": limit,
             "offset": offset,
-            "filter": page_filter,
+            "filter": request_filter,
         }
 
         json_output = self._request_json(
             "GET",
-            API_ENDPOINT_PAGELIST,
+            _pagelist_endpoint_for_api_url(api_url),
             params=params,
             retry_401=True,
             max_retries=max_retries,
         )
+        if _is_ys7_api_url(api_url):
+            json_output = _normalize_ys7_resources_payload(json_output)
         if self._meta_code(json_output) != 200:
             # session is wrong, need to relogin and retry
             self.login()
@@ -4392,7 +4618,7 @@ class EzvizClient:
 
         json_output = self._request_json(
             "GET",
-            API_ENDPOINT_USERDEVICES_STATUS,
+            _device_status_endpoint_for_api_url(self._token["api_url"]),
             params={"deviceSerials": serial_param},
             retry_401=True,
             max_retries=max_retries,
@@ -4901,14 +5127,20 @@ class EzvizClient:
         ``DownloadCloudParam.szTicketToken`` for normal cloud-storage clips.
         """
 
-        params = {
-            "deviceSerial": serial,
-            "channelNo": channel,
-            "supportMultiChannelSharedService": support_multi_channel_shared_service,
-        }
+        if _is_ys7_api_url(self._token["api_url"]):
+            params = {
+                "channelNo": channel,
+                "deviceSerials": serial,
+            }
+        else:
+            params = {
+                "deviceSerial": serial,
+                "channelNo": channel,
+                "supportMultiChannelSharedService": support_multi_channel_shared_service,
+            }
         json_output = self._request_json(
             "GET",
-            API_ENDPOINT_CAMERA_TICKET_INFO,
+            _camera_ticket_endpoint_for_api_url(self._token["api_url"], serial, channel),
             params=params,
             retry_401=True,
             max_retries=max_retries,

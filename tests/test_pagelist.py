@@ -15,6 +15,13 @@ def _client() -> EzvizClient:
     )
 
 
+def _ys7_client() -> EzvizClient:
+    return EzvizClient(
+        token={"session_id": "session", "api_url": "api.ys7.com"},
+        timeout=1,
+    )
+
+
 def test_api_get_pagelist_fetches_and_merges_pages(monkeypatch) -> None:
     client = _client()
     calls: list[dict[str, Any]] = []
@@ -76,6 +83,55 @@ def test_api_get_pagelist_returns_full_payload_when_json_key_omitted(monkeypatch
     data = client._api_get_pagelist("deviceInfos")
 
     assert data["deviceInfos"] == [{"deviceSerial": "CAM1"}]
+
+
+def test_api_get_pagelist_uses_ys7_resources_endpoint_and_normalizes(monkeypatch) -> None:
+    client = _ys7_client()
+    calls: list[dict[str, Any]] = []
+
+    def fake_request_json(
+        method: str,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        retry_401: bool = True,
+        max_retries: int = 0,
+    ) -> dict[str, Any]:
+        calls.append({"method": method, "path": path, "params": params})
+        return {
+            "meta": {"code": 200},
+            "page": {"hasNext": False},
+            "deviceInfos": [{"deviceSerial": "CAM1"}],
+            "resources": [{"deviceSerial": "CAM1", "resourceId": "RES1"}],
+            "statusInfos": {"CAM1": {"globalStatus": 1}},
+            "switchStatusInfos": {"CAM1": [{"type": 7, "enable": True}]},
+            "connectionInfos": {"CAM1": {"localIp": "192.0.2.1"}},
+            "wifiInfos": {"CAM1": {"addr": "192.0.2.2"}},
+            "cameraInfos": [
+                {
+                    "cameraId": "RES1",
+                    "deviceSerial": "CAM1",
+                    "channelNo": 1,
+                    "vtmInfo": {"domain": "vtm.example.test"},
+                    "videoQualityInfos": [{"videoLevel": 2}],
+                }
+            ],
+        }
+
+    monkeypatch.setattr(client, "_request_json", fake_request_json)
+
+    data = client._api_get_pagelist("STATUS", json_key=None)
+
+    assert calls[0]["path"] == "/v3/devices/resources"
+    assert "DEFENCE_V2" in calls[0]["params"]["filter"]
+    assert data["STATUS"] == {"CAM1": {"globalStatus": 1}}
+    assert data["SWITCH"] == {"CAM1": [{"type": 7, "enable": True}]}
+    assert data["CONNECTION"] == {"CAM1": {"localIp": "192.0.2.1"}}
+    assert data["WIFI"] == {"CAM1": {"addr": "192.0.2.2"}}
+    assert data["resourceInfos"] == [{"deviceSerial": "CAM1", "resourceId": "RES1"}]
+    assert data["VTM"] == {"RES1": {"domain": "vtm.example.test"}}
+    assert data["CHANNEL"]["RES1"]["channelNo"] == 1
+    assert data["VIDEO_QUALITY"] == {"RES1": [{"videoLevel": 2}]}
 
 
 def test_api_get_pagelist_relogs_in_on_non_200_meta(monkeypatch) -> None:

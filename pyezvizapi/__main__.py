@@ -1667,6 +1667,8 @@ def _extract_ticket(ticket_response: dict[str, Any]) -> str:
     """Extract the ticket string from known EZVIZ ticketInfo response shapes."""
 
     candidates: list[Any] = [ticket_response.get("ticketInfo")]
+    if isinstance(ticket_response.get("ticket"), str):
+        return cast(str, ticket_response["ticket"])
     data = ticket_response.get("data")
     if isinstance(data, dict):
         candidates.append(data.get("ticketInfo"))

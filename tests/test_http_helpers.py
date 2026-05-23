@@ -32,6 +32,13 @@ def _client() -> EzvizClient:
     )
 
 
+def _ys7_client() -> EzvizClient:
+    return EzvizClient(
+        token={"session_id": "session", "api_url": "api.ys7.com"},
+        timeout=1,
+    )
+
+
 def _fixture(name: str) -> dict[str, Any]:
     path = Path(__file__).with_name("fixtures") / name
     return cast(dict[str, Any], json.loads(path.read_text(encoding="utf-8")))
@@ -43,6 +50,40 @@ def _response(*, status_code: int = 200, text: str = '{"meta": {"code": 200}}') 
     resp._content = text.encode()
     resp.url = "https://api.example.test/path"
     return resp
+
+
+def test_ys7_status_and_ticket_use_ios_paths(monkeypatch) -> None:
+    client = _ys7_client()
+    calls: list[dict[str, Any]] = []
+
+    def fake_request_json(
+        method: str,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        retry_401: bool = True,
+        max_retries: int = 0,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        calls.append({"method": method, "path": path, "params": params})
+        return {"meta": {"code": 200}, "ticket": "ticket-value"}
+
+    monkeypatch.setattr(client, "_request_json", fake_request_json)
+
+    client.get_devices_status("CAM123")
+    response = client.get_camera_ticket_info("CAM123", 2)
+
+    assert calls[0] == {
+        "method": "GET",
+        "path": "/v3/devices/statusInfo",
+        "params": {"deviceSerials": "CAM123"},
+    }
+    assert calls[1] == {
+        "method": "GET",
+        "path": "/v3/streaming/ticket/CAM123/2",
+        "params": {"channelNo": 2, "deviceSerials": "CAM123"},
+    }
+    assert response["ticket"] == "ticket-value"
 
 
 def _binary_response(content: bytes) -> requests.Response:

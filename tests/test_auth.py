@@ -164,6 +164,60 @@ def test_login_with_credentials_posts_hashed_password_and_stores_token(monkeypat
     }
 
 
+def test_login_with_ys7_region_uses_v3_login_endpoint(monkeypatch) -> None:
+    client = EzvizClient(account="user@example.test", password="secret", url="api.ys7.com")
+    captured: dict[str, Any] = {}
+    captured_headers: dict[str, str] = {}
+
+    def fake_post(**kwargs: Any) -> requests.Response:
+        captured.update(kwargs)
+        captured_headers.update(client._session.headers)
+        return _response(
+            {
+                "meta": {"code": 200},
+                "sessionInfo": {
+                    "sessionId": "session-id",
+                    "rfSessionId": "refresh-id",
+                    "userName": "internal-user",
+                },
+            }
+        )
+
+    monkeypatch.setattr(client._session, "post", fake_post)
+    monkeypatch.setattr(client, "get_service_urls", lambda: {})
+
+    token = client.login()
+
+    assert captured["url"] == "https://api.ys7.com/v3/users/login/v3"
+    assert captured["data"] == {
+        "account": "user@example.test",
+        "password": md5(b"secret").hexdigest(),
+        "featureCode": FEATURE_CODE,
+        "msgType": "0",
+        "bizType": "",
+        "cuName": "SGFzc2lv",
+    }
+    assert dict(captured_headers) == {
+        "Accept": "*/*",
+        "Connection": "keep-alive",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Host": "api.ys7.com",
+        "User-Agent": "VideoGo/7.7.3 (iPhone; iOS 26.5; Scale/3.00)",
+        "appId": "ys7",
+        "clientNo": "",
+        "clientType": "1",
+        "clientVersion": "",
+        "featureCode": FEATURE_CODE,
+        "sessionId": "",
+        "ssid": "",
+    }
+    assert token["session_id"] == "session-id"
+    assert token["rf_session_id"] == "refresh-id"
+    assert token["username"] == "internal-user"
+    assert token["api_url"] == "api.ys7.com"
+    assert token["feature_code"] == FEATURE_CODE
+
+
 def test_login_with_sms_code_sets_mfa_payload(monkeypatch) -> None:
     client = EzvizClient(account="user@example.test", password="secret")
     captured: dict[str, Any] = {}

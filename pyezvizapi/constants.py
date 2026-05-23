@@ -27,18 +27,18 @@ DEFAULT_UNIFIEDMSG_STYPE = "92"
 HIK_ENCRYPTION_HEADER = b"hikencodepicture"
 REQUEST_HEADER = {
     "featureCode": FEATURE_CODE,
-    "clientType": "3",
+    "clientType": "1",
     "osVersion": "",
     "clientVersion": "",
     "netType": "WIFI",
-    "customno": "1000001",
+    # "customno": "1000001",
     "ssid": "",
-    "clientNo": "web_site",
+    "clientNo": "",
     "appId": "ys7",
-    "language": "en_GB",
-    "lang": "en",
+    # "language": "en_GB",
+    # "lang": "en",
     "sessionId": "",
-    "User-Agent": "okhttp/3.12.1",
+    "User-Agent": "VideoGo/7.7.3 (iPhone; iOS 26.5; Scale/3.00)",
 }  # Standard android header.
 MQTT_APP_KEY = "4c6b3cc2-b5eb-4813-a592-612c1374c1fe"
 APP_SECRET = "17454517-cc1c-42b3-a845-99b4a15dd3e6"
