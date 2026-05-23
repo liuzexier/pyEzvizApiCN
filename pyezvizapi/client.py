@@ -278,9 +278,10 @@ def _login_payload_for_api_url(
             "account": account,
             "password": password,
             "featureCode": FEATURE_CODE,
-            "msgType": "0",
-            "bizType": "",
+            "msgType": "3" if smscode else "0",
+            "bizType": "TERMINAL_BIND" if smscode else "",
             "cuName": "SGFzc2lv",
+            "smsCode": smscode,
         }
     return {
         "account": account,

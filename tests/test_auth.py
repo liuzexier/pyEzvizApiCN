@@ -219,11 +219,18 @@ def test_login_with_ys7_region_uses_v3_login_endpoint(monkeypatch) -> None:
 
 
 def test_login_with_sms_code_sets_mfa_payload(monkeypatch) -> None:
-    client = EzvizClient(account="user@example.test", password="secret")
-    captured: dict[str, Any] = {}
+    clients = [
+        EzvizClient(account="user@example.test", password="secret"),
+        EzvizClient(
+            account="user@example.test",
+            password="secret",
+            url="api.ys7.com",
+        ),
+    ]
+    captured: list[dict[str, Any]] = []
 
     def fake_post(**kwargs: Any) -> requests.Response:
-        captured.update(kwargs)
+        captured.append(kwargs)
         return _response(
             {
                 "meta": {"code": 200},
@@ -236,14 +243,17 @@ def test_login_with_sms_code_sets_mfa_payload(monkeypatch) -> None:
             }
         )
 
-    monkeypatch.setattr(client._session, "post", fake_post)
-    monkeypatch.setattr(client, "get_service_urls", lambda: {})
+    for client in clients:
+        monkeypatch.setattr(client._session, "post", fake_post)
+        monkeypatch.setattr(client, "get_service_urls", lambda: {})
 
-    client.login(sms_code=123456)
+        client.login(sms_code=123456)
 
-    assert captured["data"]["msgType"] == "3"
-    assert captured["data"]["bizType"] == "TERMINAL_BIND"
-    assert captured["data"]["smsCode"] == 123456
+    assert len(captured) == 2
+    for request in captured:
+        assert request["data"]["msgType"] == "3"
+        assert request["data"]["bizType"] == "TERMINAL_BIND"
+        assert request["data"]["smsCode"] == 123456
 
 
 def test_login_mfa_required_sends_code_and_raises(monkeypatch) -> None:
