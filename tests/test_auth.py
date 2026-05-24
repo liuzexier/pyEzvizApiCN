@@ -251,7 +251,7 @@ def test_login_with_sms_code_sets_mfa_payload(monkeypatch) -> None:
 
     assert len(captured) == 2
     for request in captured:
-        assert request["data"]["msgType"] == "3"
+        assert request["data"]["msgType"] == "1"
         assert request["data"]["bizType"] == "TERMINAL_BIND"
         assert request["data"]["smsCode"] == "012345"
 

@@ -275,24 +275,28 @@ def _login_payload_for_api_url(
 
     has_smscode = smscode is not None and str(smscode) != ""
     if _is_ys7_api_url(api_url):
-        return {
+        payload = {
             "account": account,
             "password": password,
             "featureCode": FEATURE_CODE,
-            "msgType": "3" if has_smscode else "0",
+            "msgType": "1" if has_smscode else "0",
             "bizType": "TERMINAL_BIND" if has_smscode else "",
             "cuName": "SGFzc2lv",
-            "smsCode": smscode,
         }
-    return {
+        if has_smscode:
+            payload["smsCode"] = smscode
+        return payload
+    payload = {
         "account": account,
         "password": password,
         "featureCode": FEATURE_CODE,
-        "msgType": "3" if has_smscode else "0",
+        "msgType": "1" if has_smscode else "0",
         "bizType": "TERMINAL_BIND" if has_smscode else "",
         "cuName": "SGFzc2lv",  # hassio base64 encoded
-        "smsCode": smscode,
     }
+    if has_smscode:
+        payload["smsCode"] = smscode
+    return payload
 
 
 YS7_RESOURCE_FILTER = (
